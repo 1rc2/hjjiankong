@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate'; // ReceivePort / IsolateNameServer（下载回调跨 isolate 通信）
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
