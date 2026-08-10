@@ -2,8 +2,8 @@ name: hjjiankong
 description: "黄金价格监控 App：模拟行情 + 黄金资讯 + 持仓盈亏 + GitHub 版本更新"
 publish_to: "none"
 
-# 应用版本号（发布 GitHub Release 时 tag 必须写 v1.0.0 与此对应，代码会自动去掉 v）
-version: 1.0.0+1
+# 应用版本号（发布 GitHub Release 时 tag 必须写 v1.0.1 与此对应，代码会自动去掉 v）
+version: 1.0.1+1
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
