@@ -16,8 +16,7 @@ dependencies:
   http: ^1.2.2
   # ===== 获取 App 版本号（版本更新对比用）=====
   package_info_plus: ^8.1.0
-  # ===== 版本号大小对比（1.0.2 > 1.0.1）=====
-  version_compare: ^1.2.4
+  # ===== 版本号大小对比已用纯 Dart 实现（见 lib/utils/version_util.dart），不依赖第三方包 =====
   # ===== APK 下载（后台 WorkManager 下载 + 通知栏进度）=====
   # 注意：必须用 1.12.0+，1.11.x 存在 SQL 注入漏洞且不兼容 AGP 8
   flutter_downloader: ^1.12.0
