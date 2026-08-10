@@ -182,7 +182,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
               const SizedBox(height: 8),
             ],
             Text(
-              '提示：国内网络下载 GitHub 可能较慢；\n如长时间无进度，可点击「前往 Release 下载」。',
+              '下载采用「直连 + 多个加速镜像自动切换」，国内网络也尽量保证速度；\n若全部失败，可点击「前往 Release」手动下载。',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
             ),
           ],
