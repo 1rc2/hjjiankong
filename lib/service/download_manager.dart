@@ -42,9 +42,10 @@ class DownloadManager {
     if (IsolateNameServer.lookupPortByName(_portName) != null) {
       IsolateNameServer.removePortNameMapping(_portName);
     }
-    _port = ReceivePort();
-    IsolateNameServer.registerPortWithName(_port.sendPort, _portName);
-    _port!.listen(_onEvent);
+    final port = ReceivePort();
+    _port = port;
+    IsolateNameServer.registerPortWithName(port.sendPort, _portName);
+    port.listen(_onEvent);
     FlutterDownloader.registerCallback(downloadCallback);
   }
 
