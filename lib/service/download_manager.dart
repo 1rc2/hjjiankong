@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:isolate'; // ReceivePort / IsolateNameServer（下载回调跨 isolate 通信）
+import 'dart:isolate'; // ReceivePort（下载回调跨 isolate 通信）
+import 'dart:ui' show IsolateNameServer; // IsolateNameServer 定义在 dart:ui（引擎层）
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
