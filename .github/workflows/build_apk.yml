@@ -1,0 +1,63 @@
+# GitHub Actions 云构建：无需本地 Flutter SDK
+#
+# 触发方式：
+#   1. 手动：仓库 Actions 页 → Build & Release APK → Run workflow
+#   2. 自动：推送 tag（如 v1.0.0）→ 自动构建并创建 Release 上传 APK
+#
+# 说明：构建前会用 flutter create 重新生成 Android 脚手架，
+#       使其与 CI 上的 Flutter 版本匹配（仓库内置 gradle 文件仅作参考）。
+name: Build & Release APK
+
+on:
+  workflow_dispatch: {}      # 手动触发
+  push:
+    tags: ['v*']             # 推送 v1.0.0 等 tag 时自动构建
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # 允许创建 GitHub Release
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Java 17（AGP 8 需要）
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 配置 Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: 生成 Android 脚手架（模板版本自动匹配当前 Flutter）
+        run: |
+          # 移除仓库内置的旧 gradle 配置，由 flutter create 生成匹配当前 SDK 的版本
+          rm -f android/settings.gradle android/build.gradle android/app/build.gradle android/gradle.properties
+          flutter create . --platforms=android --org com.example --project-name hjjiankong
+
+      - name: 安装依赖
+        run: flutter pub get
+
+      - name: 编译 Release APK
+        run: flutter build apk --release
+
+      - name: 上传 APK 构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: 创建 GitHub Release（tag 推送时自动发布）
+        if: startsWith(github.ref, 'refs/tags/')
+        continue-on-error: true # 同名 Release 已存在时跳过，不阻塞构建
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: "由 GitHub Actions 自动构建并发布"
+          files: build/app/outputs/flutter-apk/app-release.apk
