@@ -37,6 +37,20 @@ class DownloadManager {
   String _fileName = '';
   ReceivePort? _port;
 
+  /// 候选下载地址队列（直连优先，失败自动切换镜像），当前尝试下标
+  List<String> _urlQueue = [];
+  int _urlIndex = 0;
+
+  /// GitHub 加速镜像前缀（第三方服务，可能随时间失效，失效请更换或补充）
+  /// 直连 GitHub 在国内较慢，镜像作为兜底自动切换。
+  static const List<String> mirrorPrefixes = [
+    'https://gh-proxy.com/',
+    'https://ghproxy.net/',
+    'https://ghfast.top/',
+    'https://github.moeyy.xyz/',
+    'https://mirror.ghproxy.com/',
+  ];
+
   /// 在 main() 中调用：注册消息端口 + 下载回调
   void init() {
     if (IsolateNameServer.lookupPortByName(_portName) != null) {
@@ -65,14 +79,26 @@ class DownloadManager {
     final st = DownloadTaskStatus.fromInt(data[1] as int);
     final p = data[2] as int;
 
-    status.value = st;
     progress.value = p;
     if (st == DownloadTaskStatus.complete) {
+      status.value = st;
       downloadedPath.value = '$_savedDir/$_fileName';
+    } else if (st == DownloadTaskStatus.failed) {
+      // 下载失败：自动切换到下一个候选地址重试（直连 → 各镜像）
+      _urlIndex++;
+      if (_urlIndex < _urlQueue.length) {
+        status.value = DownloadTaskStatus.enqueued;
+        progress.value = 0;
+        _enqueueCurrent();
+      } else {
+        status.value = st; // 全部候选都失败，最终上报失败
+      }
+    } else {
+      status.value = st;
     }
   }
 
-  /// 开始下载 APK
+  /// 开始下载 APK（直连优先，失败自动切换镜像兜底）
   Future<void> startDownload(String url, String savedDir, String fileName) async {
     _savedDir = savedDir;
     _fileName = fileName;
@@ -80,14 +106,47 @@ class DownloadManager {
     progress.value = 0;
     downloadedPath.value = null;
 
+    // 确保目录存在（flutter_downloader 的 enqueue 会 assert savedDir 存在）
+    final dir = Directory(savedDir);
+    if (!dir.existsSync()) {
+      dir.createSync(recursive: true);
+    }
+
+    _urlQueue = _buildUrlQueue(url);
+    _urlIndex = 0;
+    await _enqueueCurrent();
+  }
+
+  /// 生成候选下载地址：直连优先，镜像逐个兜底
+  List<String> _buildUrlQueue(String directUrl) {
+    final queue = [directUrl];
+    for (final prefix in mirrorPrefixes) {
+      queue.add('$prefix$directUrl');
+    }
+    return queue;
+  }
+
+  /// 用当前下标对应的地址发起下载
+  Future<void> _enqueueCurrent() async {
+    if (_urlIndex >= _urlQueue.length) return;
+    final url = _urlQueue[_urlIndex];
     _taskId = await FlutterDownloader.enqueue(
       url: url,
-      savedDir: savedDir,
-      fileName: fileName,
+      savedDir: _savedDir,
+      fileName: _fileName,
       headers: {'User-Agent': 'Mozilla/5.0'},
       showNotification: true,
       openFileFromNotification: false,
     );
+    if (_taskId == null) {
+      // 入队失败（如地址不可达），继续尝试下一个候选
+      _urlIndex++;
+      if (_urlIndex < _urlQueue.length) {
+        await _enqueueCurrent();
+      } else {
+        status.value = DownloadTaskStatus.failed;
+      }
+    }
   }
 
   /// 是否已允许「安装未知应用」（Android 8+ 才有此概念，旧版本直接返回 true）
