@@ -19,10 +19,21 @@
   .spacer{flex:1}
   .editor-wrap{flex:1;overflow:hidden;position:relative}
   .CodeMirror{height:100%!important;font-size:14px;font-family:ui-monospace,Consolas,monospace}
-  .output-panel{height:30%;min-height:140px;display:flex;flex-direction:column;border-top:1px solid #3c3c3c}
-  .output-header{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:#252526;font-size:12px;color:#888}
+  /* 符号栏 */
+  .symbar{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;background:#252526;border-top:1px solid #3c3c3c;border-bottom:1px solid #3c3c3c;user-select:none}
+  .symbar .sym{
+    min-width:32px;padding:5px 8px;border:1px solid #3c3c3c;border-radius:5px;
+    background:#2d2d2d;color:#d4d4d4;font-family:ui-monospace,Consolas,monospace;
+    font-size:14px;font-weight:600;text-align:center;cursor:pointer;
+    transition:background .1s,transform .08s;line-height:1;
+  }
+  .symbar .sym:hover{background:#3c3c3c}
+  .symbar .sym:active{transform:scale(.92);background:#0e639c;color:#fff}
+  .symbar .sym-wide{min-width:auto;padding:5px 10px}
+  .output-panel{height:30%;min-height:140px;display:flex;flex-direction:column}
+  .output-header{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:#252526;font-size:12px;color:#888;border-top:1px solid #3c3c3c}
   .output-header button{padding:4px 10px;font-size:11px}
-  .output-content{flex:1;overflow:auto;padding:12px 16px;font-family:ui-monospace,Consolas,monospace;font-size:13px;white-space:pre-wrap;word-break:break-all;line-height:1.6}
+  .output-content{flex:1;overflow:auto;padding:12px 16px;font-family:ui-monospace,Consolas,monospace;font-size:13px;white-space:pre-wrap;word-break:break-all;line-height:1.6;background:#1e1e1e}
   .out-stdout{color:#d4d4d4}
   .out-stderr{color:#f48771}
   .out-meta{color:#6a9955;font-size:12px;margin-bottom:6px}
@@ -31,6 +42,8 @@
     .toolbar{padding:8px 10px;gap:6px}
     .toolbar h1{font-size:13px;margin-right:4px}
     select,button{padding:6px 10px;font-size:12px}
+    .symbar{gap:5px;padding:7px 10px}
+    .symbar .sym{min-width:28px;padding:4px 6px;font-size:13px}
   }
 </style>
 </head>
@@ -46,6 +59,7 @@
   <button class="run" id="runBtn" onclick="runCode()">▶ 运行</button>
 </div>
 <div class="editor-wrap"><textarea id="code"></textarea></div>
+<div class="symbar" id="symbar"></div>
 <div class="output-panel">
   <div class="output-header">
     <span>输出</span>
@@ -81,6 +95,50 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
   autoCloseBrackets: true,
   matchBrackets: true
 });
+
+/* ===== 符号栏 ===== */
+const SYMBOLS = [
+  '{','}','(',')','[',']',
+  ';',':',',','.','?','!',
+  '+','-','*','/','%','=',
+  '<','>','&','|','^','~',
+  '#','@','$','_','\\','/',
+  {'ch':'//','cls':'sym-wide'},{'ch':'/* */','cls':'sym-wide'},
+  {'ch':'"""','cls':'sym-wide'},{'ch':'\'\'\'','cls':'sym-wide'},
+  {'ch':'\\n','cls':'sym-wide'},{'ch':'\\t','cls':'sym-wide'}
+];
+function buildSymbar(){
+  const bar = document.getElementById('symbar');
+  SYMBOLS.forEach(s=>{
+    const ch = typeof s==='string'?s:s.ch;
+    const cls = typeof s==='string'?'':(s.cls||'');
+    const el = document.createElement('span');
+    el.className = 'sym ' + cls;
+    el.textContent = ch;
+    el.title = '插入 ' + ch;
+    el.addEventListener('click', e=>{
+      e.preventDefault();
+      editor.focus();
+      if(ch==='/* */'){
+        const cur = editor.getCursor();
+        editor.replaceRange('/*  */', cur);
+        editor.setCursor({line:cur.line, ch:cur.ch+3});
+      } else if(ch==='"""'){
+        const cur = editor.getCursor();
+        editor.replaceRange('""""""', cur);
+        editor.setCursor({line:cur.line, ch:cur.ch+3});
+      } else if(ch==="'''"){
+        const cur = editor.getCursor();
+        editor.replaceRange("''''''", cur);
+        editor.setCursor({line:cur.line, ch:cur.ch+3});
+      } else {
+        editor.replaceSelection(ch);
+      }
+    });
+    bar.appendChild(el);
+  });
+}
+buildSymbar();
 
 function setLang(lang) {
   const meta = LANG_META[lang];
