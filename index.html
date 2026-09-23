@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>简易代码编辑器 - Python / C / C++</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/material-darker.min.css">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#1e1e1e;color:#e0e0e0;display:flex;flex-direction:column;height:100vh}
+  .toolbar{display:flex;align-items:center;gap:10px;padding:10px 16px;background:#252526;border-bottom:1px solid #3c3c3c;flex-wrap:wrap}
+  .toolbar h1{font-size:15px;font-weight:600;color:#fff;margin-right:8px;white-space:nowrap}
+  select,button{padding:7px 14px;border:1px solid #3c3c3c;border-radius:6px;background:#3c3c3c;color:#e0e0e0;font-size:13px;cursor:pointer;font-family:inherit;outline:none}
+  select:hover,button:hover{background:#505050}
+  button.run{background:#0e639c;color:#fff;border-color:#1177bb}
+  button.run:hover{background:#1177bb}
+  button.run:disabled{opacity:.5;cursor:not-allowed}
+  .spacer{flex:1}
+  .editor-wrap{flex:1;overflow:hidden;position:relative}
+  .CodeMirror{height:100%!important;font-size:14px;font-family:ui-monospace,Consolas,monospace}
+  .output-panel{height:30%;min-height:140px;display:flex;flex-direction:column;border-top:1px solid #3c3c3c}
+  .output-header{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:#252526;font-size:12px;color:#888}
+  .output-header button{padding:4px 10px;font-size:11px}
+  .output-content{flex:1;overflow:auto;padding:12px 16px;font-family:ui-monospace,Consolas,monospace;font-size:13px;white-space:pre-wrap;word-break:break-all;line-height:1.6}
+  .out-stdout{color:#d4d4d4}
+  .out-stderr{color:#f48771}
+  .out-meta{color:#6a9955;font-size:12px;margin-bottom:6px}
+  .out-error{color:#f48771}
+  @media(max-width:600px){
+    .toolbar{padding:8px 10px;gap:6px}
+    .toolbar h1{font-size:13px;margin-right:4px}
+    select,button{padding:6px 10px;font-size:12px}
+  }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <h1>⚡ 代码编辑器</h1>
+  <select id="lang">
+    <option value="python">Python</option>
+    <option value="c">C</option>
+    <option value="cpp">C++</option>
+  </select>
+  <div class="spacer"></div>
+  <button class="run" id="runBtn" onclick="runCode()">▶ 运行</button>
+</div>
+<div class="editor-wrap"><textarea id="code"></textarea></div>
+<div class="output-panel">
+  <div class="output-header">
+    <span>输出</span>
+    <button onclick="clearOutput()">清空</button>
+  </div>
+  <div class="output-content" id="output"><span class="out-meta">点击「运行」执行代码，输出将显示在此处。</span></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
+<script>
+function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+const SAMPLES = {
+  python: '# Python 示例\nprint("Hello, World!")\n\nfor i in range(3):\n    print(f"count: {i}")',
+  c: '#include <stdio.h>\n\nint main() {\n    printf("Hello, World!\\n");\n    for (int i = 0; i < 3; i++) {\n        printf("count: %d\\n", i);\n    }\n    return 0;\n}',
+  cpp: '#include <iostream>\nusing namespace std;\n\nint main() {\n    cout << "Hello, World!" << endl;\n    for (int i = 0; i < 3; i++) {\n        cout << "count: " << i << endl;\n    }\n    return 0;\n}'
+};
+const LANG_META = {
+  python: { mode: 'python', piston: 'python', version: '3.10.0', file: 'main.py' },
+  c: { mode: 'text/x-c', piston: 'c', version: '10.2.0', file: 'main.c' },
+  cpp: { mode: 'text/x-c++src', piston: 'c++', version: '10.2.0', file: 'main.cpp' }
+};
+
+const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
+  mode: LANG_META.python.mode,
+  theme: 'material-darker',
+  lineNumbers: true,
+  indentUnit: 4,
+  tabSize: 4,
+  indentWithTabs: false,
+  lineWrapping: true,
+  autoCloseBrackets: true,
+  matchBrackets: true
+});
+
+function setLang(lang) {
+  const meta = LANG_META[lang];
+  editor.setOption('mode', meta.mode);
+  editor.setValue(SAMPLES[lang]);
+}
+document.getElementById('lang').addEventListener('change', e => setLang(e.target.value));
+setLang('python');
+
+function $(id){return document.getElementById(id)}
+function clearOutput(){ $('output').innerHTML = ''; }
+function appendOutput(html){ $('output').innerHTML += html; }
+
+async function runCode() {
+  const btn = $('runBtn');
+  btn.disabled = true;
+  btn.textContent = '运行中...';
+  clearOutput();
+  appendOutput('<span class="out-meta">正在执行...</span>');
+  const lang = $('lang').value;
+  const meta = LANG_META[lang];
+  const code = editor.getValue();
+  try {
+    const resp = await fetch('https://emkc.org/api/v2/piston/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        language: meta.piston,
+        version: meta.version,
+        files: [{ name: meta.file, content: code }]
+      })
+    });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    clearOutput();
+    const r = data.run;
+    if (r) {
+      if (r.stdout) appendOutput('<span class="out-stdout">' + escapeHtml(r.stdout) + '</span>');
+      if (r.stderr) appendOutput('<span class="out-stderr">' + escapeHtml(r.stderr) + '</span>');
+      if (!r.stdout && !r.stderr) appendOutput('<span class="out-meta">（无输出）</span>');
+      if (r.code !== undefined && r.code !== 0) {
+        appendOutput('<div class="out-error">进程退出码: ' + r.code + '</div>');
+      }
+    } else {
+      appendOutput('<span class="out-error">执行失败：' + escapeHtml(JSON.stringify(data).substring(0, 500)) + '</span>');
+    }
+  } catch (e) {
+    clearOutput();
+    appendOutput('<span class="out-error">运行出错：' + escapeHtml(e.message) + '</span>');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ 运行';
+  }
+}
+
+// Ctrl/Cmd + Enter 运行
+editor.addKeyMap({
+  'Ctrl-Enter': () => runCode(),
+  'Cmd-Enter': () => runCode()
+});
+</script>
+</body>
+</html>
