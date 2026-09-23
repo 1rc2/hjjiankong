@@ -48,8 +48,8 @@
     .toolbar{padding:8px 10px;gap:6px}
     .toolbar h1{font-size:13px;margin-right:4px}
     select,button{padding:6px 10px;font-size:12px}
-    .symbar{gap:4px;padding:6px 8px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
-    .symbar .sym{min-width:28px;padding:4px 6px;font-size:13px;flex-shrink:0}
+    .symbar{gap:4px 5px;padding:6px 8px;flex-wrap:wrap}
+    .symbar .sym{min-width:26px;padding:4px 6px;font-size:13px;flex-shrink:0}
     .symbar .sym-quote{font-size:15px}
     .output-panel{height:35%;min-height:120px}
     .output-content{font-size:12px;padding:10px}
@@ -65,7 +65,7 @@
     <option value="cpp">C++</option>
   </select>
   <div class="spacer"></div>
-  <button class="run" id="runBtn" onclick="runCode()">▶ 运行</button>
+  <button class="run" id="runBtn" onclick="runCode()" title="Ctrl+Enter 运行">▶ 运行</button>
 </div>
 <div class="editor-wrap"><textarea id="code"></textarea></div>
 <div class="symbar" id="symbar"></div>
@@ -114,6 +114,7 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
   },
   matchBrackets: true
 });
+editor.currentLang = 'python';
 
 /* ===== 符号栏 ===== */
 // 配对映射：左半 → 右半（点击左半时自动插入一对并把光标放中间）
@@ -336,13 +337,22 @@ function renderErrorSummary(stderr) {
   return html;
 }
 
-function setLang(lang) {
+function setLang(lang, force) {
   const meta = LANG_META[lang];
   editor.setOption('mode', meta.mode);
+  // 切换语言时如果已有自定义代码则确认
+  if (!force && editor.getValue().trim() && editor.getValue().trim() !== SAMPLES[editor.currentLang].trim()) {
+    if (!confirm('切换语言将丢失当前代码，确定继续？')) {
+      document.getElementById('lang').value = editor.currentLang;
+      return;
+    }
+  }
+  editor.currentLang = lang;
   editor.setValue(SAMPLES[lang]);
 }
 document.getElementById('lang').addEventListener('change', e => setLang(e.target.value));
-setLang('python');
+setLang('python', true);
+editor.focus();
 
 function $(id){return document.getElementById(id)}
 function clearOutput(){ $('output').innerHTML = ''; }
