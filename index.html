@@ -29,6 +29,9 @@
   .symbar .sym:hover{background:#3c3c3c}
   .symbar .sym:active{transform:scale(.92);background:#0e639c;color:#fff}
   .symbar .sym-wide{min-width:auto;padding:5px 10px}
+  /* 引号和配对符号更显眼 */
+  .symbar .sym-quote{color:#ffcc66;border-color:#5a4a2a;background:#3a2e1a;font-size:16px;font-weight:800}
+  .symbar .sym-pair{color:#88c0ff;border-color:#2a4a6a;background:#1a2e3a}
   .output-panel{height:30%;min-height:140px;display:flex;flex-direction:column}
   .output-header{display:flex;align-items:center;justify-content:space-between;padding:8px 16px;background:#252526;font-size:12px;color:#888;border-top:1px solid #3c3c3c}
   .output-header button{padding:4px 10px;font-size:11px}
@@ -46,6 +49,7 @@
     select,button{padding:6px 10px;font-size:12px}
     .symbar{gap:5px;padding:7px 10px}
     .symbar .sym{min-width:28px;padding:4px 6px;font-size:13px}
+    .symbar .sym-quote{font-size:15px}
   }
 </style>
 </head>
@@ -70,9 +74,13 @@
   <div class="output-content" id="output"><span class="out-meta">点击「运行」执行代码，输出将显示在此处。</span></div>
 </div>
 
+<!-- CodeMirror Core + Modes + Addons -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
+<!-- autoCloseBrackets 功能需要的 addon -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
 <script>
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 const SAMPLES = {
@@ -86,7 +94,7 @@ const LANG_META = {
   cpp: { mode: 'text/x-c++src', piston: 'c++' }
 };
 
-/* ===== 自动匹配括号和引号 ===== */
+/* ===== 自动匹配括号和引号（closebrackets addon 已加载） ===== */
 const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
   mode: LANG_META.python.mode,
   theme: 'material-darker',
@@ -95,99 +103,177 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
   tabSize: 4,
   indentWithTabs: false,
   lineWrapping: true,
-  autoCloseBrackets: true,
+  // closebrackets addon —— 打 ( [ { " ' 自动补全另一半
+  autoCloseBrackets: {
+    pairs: '()[]{}<>"\'\'``',
+    closeBefore: ")]}'\"`,.;:!?%&*+|-=#@$~",
+    triples: "'''"
+  },
   matchBrackets: true
 });
 
 /* ===== 符号栏 ===== */
+// 配对映射：左半 → 右半（点击左半时自动插入一对并把光标放中间）
+const PAIR_MAP = {
+  '(': ')', '[': ']', '{': '}', '"': '"', "'": "'"
+};
+
 const SYMBOLS = [
-  '{','}','(',')','[',']',
-  '"',"'",';',':',',','.','?','!',
-  '+','-','*','/','%','=',
-  '<','>','&','|','^','~',
-  '#','@','$','_','\\','/',
-  {'ch':'//','cls':'sym-wide'},{'ch':'/* */','cls':'sym-wide'},
-  {'ch':'"""','cls':'sym-wide'},{'ch':'\'\'\'','cls':'sym-wide'},
-  {'ch':'\\n','cls':'sym-wide'},{'ch':'\\t','cls':'sym-wide'}
+  {ch:'(', cls:'sym-pair pair'},{ch:')', cls:''},
+  {ch:'[', cls:'sym-pair pair'},{ch:']', cls:''},
+  {ch:'{', cls:'sym-pair pair'},{ch:'}', cls:''},
+  // 引号 —— 加特殊样式让它醒目
+  {ch:'"', cls:'sym-quote pair wide'},{ch:"'", cls:'sym-quote pair'},
+  {ch:';', cls:''},{ch:':', cls:''},{ch:',', cls:''},{ch:'.', cls:''},{ch:'?', cls:''},{ch:'!', cls:''},
+  {ch:'+', cls:''},{ch:'-', cls:''},{ch:'*', cls:''},{ch:'/', cls:''},{ch:'%', cls:''},{ch:'=', cls:''},
+  {ch:'<', cls:''},{ch:'>', cls:''},{ch:'&', cls:''},{ch:'|', cls:''},{ch:'^', cls:''},{ch:'~', cls:''},
+  {ch:'#', cls:''},{ch:'@', cls:''},{ch:'$', cls:''},{ch:'_', cls:''},{ch:'\\', cls:''},{ch:'/', cls:''},
+  {ch:'//', cls:'sym-wide'},{ch:'/* */', cls:'sym-wide'},
+  {ch:'"""', cls:'sym-wide sym-quote'},{ch:"'''", cls:'sym-wide sym-quote'},
+  {ch:'\\n', cls:'sym-wide'},{ch:'\\t', cls:'sym-wide'}
 ];
 function buildSymbar(){
   const bar = document.getElementById('symbar');
   SYMBOLS.forEach(s=>{
-    const ch = typeof s==='string'?s:s.ch;
-    const cls = typeof s==='string'?'':(s.cls||'');
+    const ch = s.ch;
+    const extra = {};
+    if (ch.length === 1) {
+      if (PAIR_MAP[ch]) extra.cls = (extra.cls||'') + ' pair';
+    }
+    const cls = (s.cls || '') + (extra.cls ? ' '+extra.cls : '');
     const el = document.createElement('span');
-    el.className = 'sym ' + cls;
+    el.className = 'sym ' + cls.trim();
     el.textContent = ch;
     el.title = '插入 ' + ch;
+    el.dataset.ch = ch;
     el.addEventListener('click', e=>{
       e.preventDefault();
       editor.focus();
-      if(ch==='/* */'){
-        const cur = editor.getCursor();
-        editor.replaceRange('/*  */', cur);
-        editor.setCursor({line:cur.line, ch:cur.ch+3});
-      } else if(ch==='"""'){
-        const cur = editor.getCursor();
-        editor.replaceRange('""""""', cur);
-        editor.setCursor({line:cur.line, ch:cur.ch+3});
-      } else if(ch==="'''"){
-        const cur = editor.getCursor();
-        editor.replaceRange("''''''", cur);
-        editor.setCursor({line:cur.line, ch:cur.ch+3});
-      } else {
-        editor.replaceSelection(ch);
-      }
+      insertSym(ch);
     });
     bar.appendChild(el);
   });
 }
+
+/* 符号栏点击插入 —— 配对符号自动插入一对并把光标放中间 */
+function insertSym(ch) {
+  const paired = PAIR_MAP[ch];   // 仅左半字符有配对
+  if (paired) {
+    // 插入一对，光标在中间
+    const cur = editor.getCursor();
+    const sel = editor.listSelections();
+    const hasSel = sel && sel[0].head !== sel[0].anchor;
+    if (hasSel) {
+      // 选中了文字 —— 把选中内容包裹在配对符号中
+      const from = sel[0].anchor, to = sel[0].head;
+      const newFrom = { line: from.line, ch: from.ch + ch.length };
+      editor.replaceSelection(ch + editor.getRange(from, to) + paired);
+      editor.setSelection(newFrom, { line: newFrom.line, ch: newFrom.ch + (to.ch - from.ch) });
+    } else {
+      // 无选中 —— 直接插入一对，光标在中间
+      editor.replaceSelection(ch + paired);
+      editor.setCursor({ line: cur.line, ch: cur.ch + ch.length });
+    }
+    return;
+  }
+  // 三引号和多行符号的特殊处理
+  if (ch === '"""') {
+    const cur = editor.getCursor();
+    editor.replaceRange('""""""', cur);
+    editor.setCursor({line:cur.line, ch:cur.ch+3});
+    return;
+  }
+  if (ch === "'''") {
+    const cur = editor.getCursor();
+    editor.replaceRange("''''''", cur);
+    editor.setCursor({line:cur.line, ch:cur.ch+3});
+    return;
+  }
+  if (ch === '/* */') {
+    const cur = editor.getCursor();
+    editor.replaceRange('/*  */', cur);
+    editor.setCursor({line:cur.line, ch:cur.ch+3});
+    return;
+  }
+  // 普通符号直接插入
+  editor.replaceSelection(ch);
+}
+
 buildSymbar();
 
 /* ===== 报错中文翻译 ===== */
 const ERR_MAP = [
+  // ===== Python 错误 =====
   [/SyntaxError:\s*([^,]+),?\s*(?:line\s*)?(\d+)(?:,?\s*column\s*(\d+))?/i,
     (m,msg,line,col)=>({type:'语法错误',msg:msg.trim(),line,col})],
+  [/IndentationError:\s*([^,]+),?\s*(?:line\s*)?(\d+)/i,
+    (m,msg,line)=>({type:'缩进错误',msg:msg.trim(),line})],
+  [/TabError:\s*([^,]+),?\s*(?:line\s*)?(\d+)/i,
+    (m,msg,line)=>({type:'Tab/空格 混用',msg:msg.trim(),line})],
   [/NameError:\s*(.+)/i,
-    (m,msg)=>({type:'名称错误',msg:msg.trim()})],
+    (m,msg)=>({type:'名称未定义',msg:msg.trim()})],
+  [/UnboundLocalError:\s*(.+)/i,
+    (m,msg)=>({type:'局部变量未绑定',msg:msg.trim()})],
   [/TypeError:\s*(.+)/i,
     (m,msg)=>({type:'类型错误',msg:msg.trim()})],
   [/ValueError:\s*(.+)/i,
     (m,msg)=>({type:'值错误',msg:msg.trim()})],
   [/IndexError:\s*(.+)/i,
-    (m,msg)=>({type:'索引错误',msg:msg.trim()})],
+    (m,msg)=>({type:'索引越界',msg:msg.trim()})],
   [/KeyError:\s*(.+)/i,
-    (m,msg)=>({type:'键错误',msg:msg.trim()})],
+    (m,msg)=>({type:'字典键不存在',msg:msg.trim()})],
   [/AttributeError:\s*(.+)/i,
-    (m,msg)=>({type:'属性错误',msg:msg.trim()})],
+    (m,msg)=>({type:'对象无此属性',msg:msg.trim()})],
   [/ImportError:\s*(.+)/i,
-    (m,msg)=>({type:'导入错误',msg:msg.trim()})],
+    (m,msg)=>({type:'导入失败',msg:msg.trim()})],
   [/ModuleNotFoundError:\s*(.+)/i,
     (m,msg)=>({type:'模块未找到',msg:msg.trim()})],
   [/ZeroDivisionError:\s*(.+)/i,
-    (m,msg)=>({type:'除零错误',msg:msg.trim()})],
+    (m,msg)=>({type:'除以零错误',msg:msg.trim()})],
   [/FileNotFoundError:\s*(.+)/i,
     (m,msg)=>({type:'文件未找到',msg:msg.trim()})],
-  [/IndentationError:\s*([^,]+),?\s*(?:line\s*)?(\d+)/i,
-    (m,msg,line)=>({type:'缩进错误',msg:msg.trim(),line})],
-  [/TabError:\s*(.+)/i,
-    (m,msg)=>({type:'Tab 错误',msg:msg.trim()})],
+  [/FileExistsError:\s*(.+)/i,
+    (m,msg)=>({type:'文件已存在',msg:msg.trim()})],
+  [/PermissionError:\s*(.+)/i,
+    (m,msg)=>({type:'权限被拒绝',msg:msg.trim()})],
+  [/IsADirectoryError:\s*(.+)/i,
+    (m,msg)=>({type:'是目录而非文件',msg:msg.trim()})],
+  [/NotADirectoryError:\s*(.+)/i,
+    (m,msg)=>({type:'不是目录',msg:msg.trim()})],
+  [/OSError:\s*(.+)/i,
+    (m,msg)=>({type:'操作系统错误',msg:msg.trim()})],
   [/OverflowError:\s*(.+)/i,
-    (m,msg)=>({type:'溢出错误',msg:msg.trim()})],
+    (m,msg)=>({type:'数值溢出',msg:msg.trim()})],
   [/RecursionError:\s*(.+)/i,
-    (m,msg)=>({type:'递归错误',msg:msg.trim()})],
+    (m,msg)=>({type:'递归过深',msg:msg.trim()})],
   [/RuntimeError:\s*(.+)/i,
     (m,msg)=>({type:'运行时错误',msg:msg.trim()})],
-  [/assert\s+(.+)/i,
-    (m,msg)=>({type:'断言失败',msg:msg.trim()})],
-  // C 编译器错误
+  [/StopIteration:\s*(.+)/i,
+    (m,msg)=>({type:'迭代结束',msg:msg.trim()})],
+  [/KeyboardInterrupt:\s*(.*)/i,
+    (m,msg)=>({type:'用户中断',msg:msg.trim()||'程序被 Ctrl+C 中断'})],
+  [/SystemExit:\s*(.*)/i,
+    (m,msg)=>({type:'程序主动退出',msg:msg.trim()})],
+  // ===== C / C++ 编译器错误 =====
+  // 格式1: file.c(行): error C码: msg (MSVC)
   [/([a-zA-Z0-9_./-]+)\((\d+)(?::(\d+))?\):\s*(error|warning)\s*C(\d+):\s*(.+)/i,
     (m,file,line,col,kind,code,msg)=>({type:kind==='error'?'编译错误':'编译警告',msg:msg.trim(),line,col,code})],
+  // 格式2: file.c:行:列: error: msg (GCC/Clang)
   [/([a-zA-Z0-9_./-]+):(\d+):(\d+):\s*(error|warning):\s*(.+)/i,
     (m,file,line,col,kind,msg)=>({type:kind==='error'?'编译错误':'编译警告',msg:msg.trim(),line,col})],
-  [/undefined reference to\s+(.+)/i,
+  // 格式3: file.c:行: (无列号)
+  [/([a-zA-Z0-9_./-]+):(\d+):\s*(error|warning):\s*(.+)/i,
+    (m,file,line,kind,msg)=>({type:kind==='error'?'编译错误':'编译警告',msg:msg.trim(),line})],
+  // 链接器错误
+  [/undefined reference to\s+['"]?([^'"\s]+)['"]?/i,
     (m,msg)=>({type:'链接错误',msg:'未定义引用: '+msg.trim()})],
-  [/multiple definition of\s+(.+)/i,
+  [/multiple definition of\s+['"]?([^'"\s]+)['"]?/i,
     (m,msg)=>({type:'链接错误',msg:'重复定义: '+msg.trim()})],
+  [/ld: symbol\(s\) not found/i,
+    (m,msg)=>({type:'链接错误',msg:'符号未找到'})],
+  [/collect2:\s*error:\s*ld returned\s*\d+/i,
+    (m,msg)=>({type:'链接错误',msg:'链接器返回错误'})],
+  // 通用兜底
   [/error:\s*(.+)/i,
     (m,msg)=>({type:'错误',msg:msg.trim()})]
 ];
@@ -195,6 +281,13 @@ const ERR_MAP = [
 function translateError(stderr) {
   if (!stderr) return null;
   const lines = stderr.split('\n').filter(Boolean);
+  // 先找包含位置信息的那行（通常是最后一行或包含 SyntaxError/File 的行）
+  // 把所有行拼接后整体匹配，这样 regex 可以跨行工作
+  for (const [regex, handler] of ERR_MAP) {
+    const m = stderr.match(regex);
+    if (m) return handler(...m);
+  }
+  // 兜底：逐行匹配
   for (const line of lines) {
     for (const [regex, handler] of ERR_MAP) {
       const m = line.match(regex);
@@ -210,12 +303,13 @@ function renderErrorSummary(stderr) {
   let html = '<div class="err-summary">';
   html += '<div class="err-type">❌ ' + escapeHtml(info.type) + '</div>';
   if (info.line) {
-    html += '<div class="err-pos">位置：第 ' + info.line + ' 行';
+    html += '<div class="err-pos">📍 位置：第 ' + info.line + ' 行';
     if (info.col) html += '，第 ' + info.col + ' 列';
+    if (info.file && info.file !== '<stdin>') html += '（文件：' + escapeHtml(info.file) + '）';
     html += '</div>';
   }
   if (info.code) html += '<div class="err-pos">错误码：' + escapeHtml(info.code) + '</div>';
-  html += '<div style="margin-top:4px">' + escapeHtml(info.msg) + '</div>';
+  html += '<div style="margin-top:6px">' + escapeHtml(info.msg) + '</div>';
   html += '</div>';
   return html;
 }
@@ -241,6 +335,7 @@ async function runCode() {
   const lang = $('lang').value;
   const meta = LANG_META[lang];
   const code = editor.getValue();
+  const startTime = Date.now();
   try {
     const resp = await fetch('https://emkc.org/api/v1/piston/execute', {
       method: 'POST',
@@ -252,14 +347,18 @@ async function runCode() {
     });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     clearOutput();
+    // 先展示 stdout（如果有）
+    if (data.stdout) appendOutput('<span class="out-stdout">' + escapeHtml(data.stdout) + '</span>');
+    // 再展示错误总结 + stderr 原文
     if (data.stderr) {
       const summary = renderErrorSummary(data.stderr);
       if (summary) appendOutput(summary);
-      appendOutput('<span class="out-stderr">' + escapeHtml(data.stderr) + '</span>');
+      appendOutput('<details style="margin-top:6px"><summary style="color:#888;cursor:pointer;font-size:12px">查看完整错误原文</summary><span class="out-stderr" style="display:block;margin-top:6px">' + escapeHtml(data.stderr) + '</span></details>');
     }
-    if (data.stdout) appendOutput('<span class="out-stdout">' + escapeHtml(data.stdout) + '</span>');
     if (!data.stdout && !data.stderr) appendOutput('<span class="out-meta">（无输出）</span>');
+    appendOutput('<span class="out-meta">⏱ 执行耗时 ' + elapsed + 's</span>');
   } catch (e) {
     clearOutput();
     appendOutput('<span class="out-error">运行出错：' + escapeHtml(e.message) + '</span>');
@@ -271,7 +370,8 @@ async function runCode() {
 
 editor.addKeyMap({
   'Ctrl-Enter': () => runCode(),
-  'Cmd-Enter': () => runCode()
+  'Cmd-Enter': () => runCode(),
+  'Shift-Tab': 'indentLess'
 });
 </script>
 </body>
