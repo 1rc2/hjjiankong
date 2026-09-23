@@ -19,7 +19,6 @@
   .spacer{flex:1}
   .editor-wrap{flex:1;overflow:hidden;position:relative}
   .CodeMirror{height:100%!important;font-size:14px;font-family:ui-monospace,Consolas,monospace}
-  /* 符号栏 */
   .symbar{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;background:#252526;border-top:1px solid #3c3c3c;border-bottom:1px solid #3c3c3c;user-select:none}
   .symbar .sym{
     min-width:32px;padding:5px 8px;border:1px solid #3c3c3c;border-radius:5px;
@@ -38,6 +37,9 @@
   .out-stderr{color:#f48771}
   .out-meta{color:#6a9955;font-size:12px;margin-bottom:6px}
   .out-error{color:#f48771}
+  .err-summary{background:#2a1a1a;border:1px solid #6b2020;border-radius:6px;padding:10px 14px;margin-bottom:10px;color:#f48771;font-size:13px;line-height:1.7}
+  .err-summary .err-type{font-weight:700;font-size:14px;margin-bottom:4px;color:#f87171}
+  .err-summary .err-pos{color:#fbbf24;font-size:12px}
   @media(max-width:600px){
     .toolbar{padding:8px 10px;gap:6px}
     .toolbar h1{font-size:13px;margin-right:4px}
@@ -79,11 +81,12 @@ const SAMPLES = {
   cpp: '#include <iostream>\nusing namespace std;\n\nint main() {\n    return 0;\n}'
 };
 const LANG_META = {
-  python: { mode: 'python', piston: 'python' },
+  python: { mode: 'python', piston: 'c', piston: 'python' },
   c: { mode: 'text/x-c', piston: 'c' },
   cpp: { mode: 'text/x-c++src', piston: 'c++' }
 };
 
+/* ===== 自动匹配括号和引号 ===== */
 const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
   mode: LANG_META.python.mode,
   theme: 'material-darker',
@@ -92,14 +95,18 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
   tabSize: 4,
   indentWithTabs: false,
   lineWrapping: true,
-  autoCloseBrackets: true,
+  autoCloseBrackets: {
+    pairs: "()[]{}''\"\"",
+    closeBefore: ")]}'\"",
+    triples: "'''"
+  },
   matchBrackets: true
 });
 
 /* ===== 符号栏 ===== */
 const SYMBOLS = [
   '{','}','(',')','[',']',
-  ';',':',',','.','?','!',
+  '"',"'",';',':',',','.','?','!',
   '+','-','*','/','%','=',
   '<','>','&','|','^','~',
   '#','@','$','_','\\','/',
@@ -140,6 +147,83 @@ function buildSymbar(){
 }
 buildSymbar();
 
+/* ===== 报错中文翻译 ===== */
+const ERR_MAP = [
+  [/SyntaxError:\s*([^,]+),?\s*(?:line\s*)?(\d+)(?:,?\s*column\s*(\d+))?/i,
+    (m,msg,line,col)=>({type:'语法错误',msg:msg.trim(),line,col})],
+  [/NameError:\s*(.+)/i,
+    (m,msg)=>({type:'名称错误',msg:msg.trim()})],
+  [/TypeError:\s*(.+)/i,
+    (m,msg)=>({type:'类型错误',msg:msg.trim()})],
+  [/ValueError:\s*(.+)/i,
+    (m,msg)=>({type:'值错误',msg:msg.trim()})],
+  [/IndexError:\s*(.+)/i,
+    (m,msg)=>({type:'索引错误',msg:msg.trim()})],
+  [/KeyError:\s*(.+)/i,
+    (m,msg)=>({type:'键错误',msg:msg.trim()})],
+  [/AttributeError:\s*(.+)/i,
+    (m,msg)=>({type:'属性错误',msg:msg.trim()})],
+  [/ImportError:\s*(.+)/i,
+    (m,msg)=>({type:'导入错误',msg:msg.trim()})],
+  [/ModuleNotFoundError:\s*(.+)/i,
+    (m,msg)=>({type:'模块未找到',msg:msg.trim()})],
+  [/ZeroDivisionError:\s*(.+)/i,
+    (m,msg)=>({type:'除零错误',msg:msg.trim()})],
+  [/FileNotFoundError:\s*(.+)/i,
+    (m,msg)=>({type:'文件未找到',msg:msg.trim()})],
+  [/IndentationError:\s*([^,]+),?\s*(?:line\s*)?(\d+)/i,
+    (m,msg,line)=>({type:'缩进错误',msg:msg.trim(),line})],
+  [/TabError:\s*(.+)/i,
+    (m,msg)=>({type:'Tab 错误',msg:msg.trim()})],
+  [/OverflowError:\s*(.+)/i,
+    (m,msg)=>({type:'溢出错误',msg:msg.trim()})],
+  [/RecursionError:\s*(.+)/i,
+    (m,msg)=>({type:'递归错误',msg:msg.trim()})],
+  [/RuntimeError:\s*(.+)/i,
+    (m,msg)=>({type:'运行时错误',msg:msg.trim()})],
+  [/assert\s+(.+)/i,
+    (m,msg)=>({type:'断言失败',msg:msg.trim()})],
+  // C 编译器错误
+  [/([a-zA-Z0-9_./-]+)\((\d+)(?::(\d+))?\):\s*(error|warning)\s*C(\d+):\s*(.+)/i,
+    (m,file,line,col,kind,code,msg)=>({type:kind==='error'?'编译错误':'编译警告',msg:msg.trim(),line,col,code})],
+  [/([a-zA-Z0-9_./-]+):(\d+):(\d+):\s*(error|warning):\s*(.+)/i,
+    (m,file,line,col,kind,msg)=>({type:kind==='error'?'编译错误':'编译警告',msg:msg.trim(),line,col})],
+  [/undefined reference to\s+(.+)/i,
+    (m,msg)=>({type:'链接错误',msg:'未定义引用: '+msg.trim()})],
+  [/multiple definition of\s+(.+)/i,
+    (m,msg)=>({type:'链接错误',msg:'重复定义: '+msg.trim()})],
+  [/error:\s*(.+)/i,
+    (m,msg)=>({type:'错误',msg:msg.trim()})]
+];
+
+function translateError(stderr) {
+  if (!stderr) return null;
+  const lines = stderr.split('\n').filter(Boolean);
+  for (const line of lines) {
+    for (const [regex, handler] of ERR_MAP) {
+      const m = line.match(regex);
+      if (m) return handler(...m);
+    }
+  }
+  return null;
+}
+
+function renderErrorSummary(stderr) {
+  const info = translateError(stderr);
+  if (!info) return '';
+  let html = '<div class="err-summary">';
+  html += '<div class="err-type">❌ ' + escapeHtml(info.type) + '</div>';
+  if (info.line) {
+    html += '<div class="err-pos">位置：第 ' + info.line + ' 行';
+    if (info.col) html += '，第 ' + info.col + ' 列';
+    html += '</div>';
+  }
+  if (info.code) html += '<div class="err-pos">错误码：' + escapeHtml(info.code) + '</div>';
+  html += '<div style="margin-top:4px">' + escapeHtml(info.msg) + '</div>';
+  html += '</div>';
+  return html;
+}
+
 function setLang(lang) {
   const meta = LANG_META[lang];
   editor.setOption('mode', meta.mode);
@@ -174,8 +258,13 @@ async function runCode() {
     const data = await resp.json();
     clearOutput();
     if (data.ran) {
+      // 如果有 stderr，先显示中文错误摘要
+      if (data.stderr) {
+        const summary = renderErrorSummary(data.stderr);
+        if (summary) appendOutput(summary);
+        appendOutput('<span class="out-stderr">' + escapeHtml(data.stderr) + '</span>');
+      }
       if (data.stdout) appendOutput('<span class="out-stdout">' + escapeHtml(data.stdout) + '</span>');
-      if (data.stderr) appendOutput('<span class="out-stderr">' + escapeHtml(data.stderr) + '</span>');
       if (!data.stdout && !data.stderr) appendOutput('<span class="out-meta">（无输出）</span>');
     } else {
       appendOutput('<span class="out-error">执行失败：' + escapeHtml(JSON.stringify(data).substring(0, 500)) + '</span>');
