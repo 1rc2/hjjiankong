@@ -47,9 +47,11 @@
     .toolbar{padding:8px 10px;gap:6px}
     .toolbar h1{font-size:13px;margin-right:4px}
     select,button{padding:6px 10px;font-size:12px}
-    .symbar{gap:5px;padding:7px 10px}
-    .symbar .sym{min-width:28px;padding:4px 6px;font-size:13px}
+    .symbar{gap:4px;padding:6px 8px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
+    .symbar .sym{min-width:28px;padding:4px 6px;font-size:13px;flex-shrink:0}
     .symbar .sym-quote{font-size:15px}
+    .output-panel{height:35%;min-height:120px}
+    .output-content{font-size:12px;padding:10px}
   }
 </style>
 </head>
@@ -105,8 +107,8 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
   lineWrapping: true,
   // closebrackets addon —— 打 ( [ { " ' 自动补全另一半
   autoCloseBrackets: {
-    pairs: '()[]{}<>"\'\'``',
-    closeBefore: ")]}'\"`,.;:!?%&*+|-=#@$~",
+    pairs: '()[]{}""\'\'``',
+    closeBefore: ")]}'\",.;:!?%&*+|-=#@$~",
     triples: "'''"
   },
   matchBrackets: true
@@ -127,7 +129,7 @@ const SYMBOLS = [
   {ch:';', cls:''},{ch:':', cls:''},{ch:',', cls:''},{ch:'.', cls:''},{ch:'?', cls:''},{ch:'!', cls:''},
   {ch:'+', cls:''},{ch:'-', cls:''},{ch:'*', cls:''},{ch:'/', cls:''},{ch:'%', cls:''},{ch:'=', cls:''},
   {ch:'<', cls:''},{ch:'>', cls:''},{ch:'&', cls:''},{ch:'|', cls:''},{ch:'^', cls:''},{ch:'~', cls:''},
-  {ch:'#', cls:''},{ch:'@', cls:''},{ch:'$', cls:''},{ch:'_', cls:''},{ch:'\\', cls:''},{ch:'/', cls:''},
+  {ch:'#', cls:''},{ch:'@', cls:''},{ch:'$', cls:''},{ch:'_', cls:''},{ch:'\\', cls:''},
   {ch:'//', cls:'sym-wide'},{ch:'/* */', cls:'sym-wide'},
   {ch:'"""', cls:'sym-wide sym-quote'},{ch:"'''", cls:'sym-wide sym-quote'},
   {ch:'\\n', cls:'sym-wide'},{ch:'\\t', cls:'sym-wide'}
@@ -257,13 +259,13 @@ const ERR_MAP = [
   // ===== C / C++ 编译器错误 =====
   // 格式1: file.c(行): error C码: msg (MSVC)
   [/([a-zA-Z0-9_./-]+)\((\d+)(?::(\d+))?\):\s*(error|warning)\s*C(\d+):\s*(.+)/i,
-    (m,file,line,col,kind,code,msg)=>({type:kind==='error'?'编译错误':'编译警告',msg:msg.trim(),line,col,code})],
+    (m,file,line,col,kind,code,msg)=>({type:kind==='error'?'编译错误':'编译警告',msg:msg.trim(),line,col,code,file})],
   // 格式2: file.c:行:列: error: msg (GCC/Clang)
   [/([a-zA-Z0-9_./-]+):(\d+):(\d+):\s*(error|warning):\s*(.+)/i,
-    (m,file,line,col,kind,msg)=>({type:kind==='error'?'编译错误':'编译警告',msg:msg.trim(),line,col})],
+    (m,file,line,col,kind,msg)=>({type:kind==='error'?'编译错误':'编译警告',msg:msg.trim(),line,col,file})],
   // 格式3: file.c:行: (无列号)
   [/([a-zA-Z0-9_./-]+):(\d+):\s*(error|warning):\s*(.+)/i,
-    (m,file,line,kind,msg)=>({type:kind==='error'?'编译错误':'编译警告',msg:msg.trim(),line})],
+    (m,file,line,kind,msg)=>({type:kind==='error'?'编译错误':'编译警告',msg:msg.trim(),line,file})],
   // 链接器错误
   [/undefined reference to\s+['"]?([^'"\s]+)['"]?/i,
     (m,msg)=>({type:'链接错误',msg:'未定义引用: '+msg.trim()})],
@@ -281,17 +283,31 @@ const ERR_MAP = [
 function translateError(stderr) {
   if (!stderr) return null;
   const lines = stderr.split('\n').filter(Boolean);
-  // 先找包含位置信息的那行（通常是最后一行或包含 SyntaxError/File 的行）
-  // 把所有行拼接后整体匹配，这样 regex 可以跨行工作
+  // 预提取 Python traceback 中的行号和文件名
+  let tbLine = null, tbFile = null;
+  const tbMatch = stderr.match(/File\s+"([^"]+)",\s*line\s+(\d+)/);
+  if (tbMatch) { tbFile = tbMatch[1]; tbLine = tbMatch[2]; }
+  // 先整体匹配
   for (const [regex, handler] of ERR_MAP) {
     const m = stderr.match(regex);
-    if (m) return handler(...m);
+    if (m) {
+      const info = handler(...m);
+      // 如果错误本身没有行号，但 traceback 里有，则补上
+      if (!info.line && tbLine) info.line = tbLine;
+      if (!info.file && tbFile && tbFile !== '<stdin>' && tbFile !== '<string>') info.file = tbFile;
+      return info;
+    }
   }
   // 兜底：逐行匹配
   for (const line of lines) {
     for (const [regex, handler] of ERR_MAP) {
       const m = line.match(regex);
-      if (m) return handler(...m);
+      if (m) {
+        const info = handler(...m);
+        if (!info.line && tbLine) info.line = tbLine;
+        if (!info.file && tbFile && tbFile !== '<stdin>' && tbFile !== '<string>') info.file = tbFile;
+        return info;
+      }
     }
   }
   return null;
@@ -337,14 +353,18 @@ async function runCode() {
   const code = editor.getValue();
   const startTime = Date.now();
   try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 30000);
     const resp = await fetch('https://emkc.org/api/v1/piston/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         language: meta.piston,
         source: code
-      })
+      }),
+      signal: ctrl.signal
     });
+    clearTimeout(timer);
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -361,7 +381,13 @@ async function runCode() {
     appendOutput('<span class="out-meta">⏱ 执行耗时 ' + elapsed + 's</span>');
   } catch (e) {
     clearOutput();
-    appendOutput('<span class="out-error">运行出错：' + escapeHtml(e.message) + '</span>');
+    if (e.name === 'AbortError') {
+      appendOutput('<span class="out-error">⏱ 执行超时（超过30秒），请优化代码或重试</span>');
+    } else if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+      appendOutput('<span class="out-error">网络连接失败，请检查网络后重试</span>');
+    } else {
+      appendOutput('<span class="out-error">运行出错：' + escapeHtml(e.message) + '</span>');
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = '▶ 运行';
