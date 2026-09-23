@@ -95,11 +95,7 @@ const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
   tabSize: 4,
   indentWithTabs: false,
   lineWrapping: true,
-  autoCloseBrackets: {
-    pairs: "()[]{}''\"\"",
-    closeBefore: ")]}'\"",
-    triples: "'''"
-  },
+  autoCloseBrackets: true,
   matchBrackets: true
 });
 
@@ -257,18 +253,13 @@ async function runCode() {
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
     clearOutput();
-    if (data.ran) {
-      // 如果有 stderr，先显示中文错误摘要
-      if (data.stderr) {
-        const summary = renderErrorSummary(data.stderr);
-        if (summary) appendOutput(summary);
-        appendOutput('<span class="out-stderr">' + escapeHtml(data.stderr) + '</span>');
-      }
-      if (data.stdout) appendOutput('<span class="out-stdout">' + escapeHtml(data.stdout) + '</span>');
-      if (!data.stdout && !data.stderr) appendOutput('<span class="out-meta">（无输出）</span>');
-    } else {
-      appendOutput('<span class="out-error">执行失败：' + escapeHtml(JSON.stringify(data).substring(0, 500)) + '</span>');
+    if (data.stderr) {
+      const summary = renderErrorSummary(data.stderr);
+      if (summary) appendOutput(summary);
+      appendOutput('<span class="out-stderr">' + escapeHtml(data.stderr) + '</span>');
     }
+    if (data.stdout) appendOutput('<span class="out-stdout">' + escapeHtml(data.stdout) + '</span>');
+    if (!data.stdout && !data.stderr) appendOutput('<span class="out-meta">（无输出）</span>');
   } catch (e) {
     clearOutput();
     appendOutput('<span class="out-error">运行出错：' + escapeHtml(e.message) + '</span>');
